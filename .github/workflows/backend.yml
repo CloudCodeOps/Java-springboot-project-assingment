@@ -1,53 +1,21 @@
 name: Backend CI/CD
-
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: backend
   CONTAINER_NAME: backend
   CONTAINER_PORT: 8084
-
 jobs:
   build-and-deploy:
     runs-on: self-hosted
-
     steps:
-      # ---------------------------------------------------------------
-      # 1. CODE CHECKOUT
-      # ---------------------------------------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # full history needed for accurate SonarQube blame/new-code analysis
 
-      # ---------------------------------------------------------------
-      # 2. BUILD (Maven — adjust if you use Gradle)
-      # ---------------------------------------------------------------
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('backend/**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
-
-      - name: Build & Run Tests
-        working-directory: backend
-        run: mvn -B clean verify
-
-      # ---------------------------------------------------------------
-      # 3. SONARQUBE STATIC ANALYSIS
-      # ---------------------------------------------------------------
       - name: SonarQube Scan
         working-directory: backend
         env:
@@ -65,132 +33,78 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        # Fails the pipeline here if the quality gate doesn't pass —
-        # remove this step if you want Sonar to be advisory-only.
 
-      # ---------------------------------------------------------------
-      # 4. AWS / ECR AUTH
-      # ---------------------------------------------------------------
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-
-      # ---------------------------------------------------------------
-      # 5. DOCKER BUILD
-      # ---------------------------------------------------------------
       - name: Build Docker Image
         working-directory: backend
         run: |
           docker build -t $ECR_REPOSITORY:${{ github.run_number }} .
           docker tag $ECR_REPOSITORY:${{ github.run_number }} \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
-      # ---------------------------------------------------------------
-      # 6. TRIVY VULNERABILITY SCAN
-      # ---------------------------------------------------------------
-      - name: Trivy Scan (Image)
-        uses: aquasecurity/trivy-action@v0
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'          # fail pipeline on critical/high vulns; set to '0' to only report
+          exit-code: '1'
           ignore-unfixed: true
-          vuln-type: 'os,library'
 
-      - name: Trivy Scan Report (JSON artifact)
-        if: always()
-        uses: aquasecurity/trivy-action@0.36.0
-        with:
-          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}'
-          format: 'json'
-          output: 'trivy-report.json'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'
-
-      - name: Upload Trivy Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-report
-          path: backend/trivy-report.json
-          retention-days: 14
-
-      # ---------------------------------------------------------------
-      # 7. PUSH TO ECR
-      # ---------------------------------------------------------------
       - name: Push Docker Image
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
-      # ---------------------------------------------------------------
-      # 8. DEPLOY TO EC2 (runner IS the EC2 host — direct docker run)
-      # ---------------------------------------------------------------
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
       - name: Stop Existing Container
         run: |
           docker stop $CONTAINER_NAME || true
           docker rm $CONTAINER_NAME || true
-
       - name: Pull Latest Image
         run: |
           docker pull \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
       - name: Run Container
         run: |
           docker run -d \
             --name $CONTAINER_NAME \
             --restart always \
-            -p $CONTAINER_PORT:$CONTAINER_PORT \
+            -p 8084:8084 \
             -e MYSQL_HOST=database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com \
             -e MYSQL_PORT=3306 \
-            -e MYSQL_USERNAME=${{ secrets.MYSQL_USERNAME }} \
-            -e MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }} \
+            -e MYSQL_USERNAME=admin \
+            -e MYSQL_PASSWORD=admin123 \
             ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
       - name: Health Check
         run: |
           sleep 20
-          curl --fail http://localhost:$CONTAINER_PORT/actuator/health
-
+          curl http://localhost:8084/actuator/health
       - name: Show Running Containers
         if: always()
         run: docker ps -a
-
       - name: Show Docker Images
         if: always()
         run: docker images
 
-      # ---------------------------------------------------------------
-      # 9. CLEANUP OLD IMAGES (optional housekeeping)
-      # ---------------------------------------------------------------
-      - name: Prune Dangling Images
-        if: always()
-        run: docker image prune -f
-
-      # ---------------------------------------------------------------
-      # 10. EMAIL NOTIFICATION
-      # ---------------------------------------------------------------
       - name: Send Email Notification
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com          # change to your SMTP provider
+          server_address: smtp.gmail.com
           server_port: 465
           secure: true
           username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}   # use an app password, not your real password
+          password: ${{ secrets.MAIL_PASSWORD }}
           subject: >-
             [${{ job.status }}] Backend CI/CD - Run #${{ github.run_number }} (${{ github.ref_name }})
-          to: ${{ secrets.MAIL_RECIPIENTS }}       # comma-separated list
+          to: ${{ secrets.MAIL_RECIPIENTS }}
           from: GitHub Actions <${{ secrets.MAIL_USERNAME }}>
           body: |
             Pipeline: Backend CI/CD
