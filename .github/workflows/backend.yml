@@ -16,6 +16,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Ensure Java & Maven are installed
+        run: |
+          if ! command -v mvn &> /dev/null; then
+            sudo yum install -y java-11-amazon-corretto-devel maven
+          fi
+          mvn -version
+
       - name: SonarQube Scan
         working-directory: backend
         env:
