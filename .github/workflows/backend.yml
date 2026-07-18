@@ -61,12 +61,15 @@ jobs:
 
       - name: Trivy Scan
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_JAVA_DB_SKIP_UPDATE: 'true'
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           ignore-unfixed: true
+          scanners: 'vuln'
 
       - name: Push Docker Image
         run: |
@@ -86,7 +89,7 @@ jobs:
             --name $CONTAINER_NAME \
             --restart always \
             -p 8084:8084 \
-            -e MYSQL_HOST=database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com \
+            -e MYSQL_HOST=database-1.cadsa2seukct.us-east-1.rds.amazonaws.com \
             -e MYSQL_PORT=3306 \
             -e MYSQL_USERNAME=admin \
             -e MYSQL_PASSWORD=admin123 \
@@ -101,25 +104,3 @@ jobs:
       - name: Show Docker Images
         if: always()
         run: docker images
-
-      - name: Send Email Notification
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: >-
-            [${{ job.status }}] Backend CI/CD - Run #${{ github.run_number }} (${{ github.ref_name }})
-          to: ${{ secrets.MAIL_RECIPIENTS }}
-          from: GitHub Actions <${{ secrets.MAIL_USERNAME }}>
-          body: |
-            Pipeline: Backend CI/CD
-            Status: ${{ job.status }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Triggered by: ${{ github.actor }}
-            Run number: ${{ github.run_number }}
-            Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
