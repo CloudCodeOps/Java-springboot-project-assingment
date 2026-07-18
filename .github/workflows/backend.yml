@@ -96,7 +96,7 @@ jobs:
       # 6. TRIVY VULNERABILITY SCAN
       # ---------------------------------------------------------------
       - name: Trivy Scan (Image)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}'
           format: 'table'
