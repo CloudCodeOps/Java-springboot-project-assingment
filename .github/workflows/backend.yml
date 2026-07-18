@@ -15,26 +15,26 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Ensure Java & Maven are installed
-        run: |
-          if ! command -v mvn &> /dev/null; then
-            sudo yum install -y java-11-amazon-corretto-devel maven
-          fi
-          mvn -version
-
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 17
+          cache: maven
+      - name: Build Project
+        working-directory: backend
+        run: mvn clean package -DskipTests
       - name: SonarQube Scan
         working-directory: backend
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          mvn -B sonar:sonar \
+          mvn sonar:sonar \
             -Dsonar.projectKey=backend \
             -Dsonar.host.url=$SONAR_HOST_URL \
             -Dsonar.token=$SONAR_TOKEN
-
-      - name: SonarQube Quality Gate Check
+      - name: SonarQube Quality Gate
         uses: sonarsource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
         with:
@@ -42,7 +42,6 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -55,53 +54,44 @@ jobs:
       - name: Build Docker Image
         working-directory: backend
         run: |
-          docker build -t $ECR_REPOSITORY:${{ github.run_number }} .
-          docker tag $ECR_REPOSITORY:${{ github.run_number }} \
-          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
+          docker build -t backend:${{ github.run_number }} .
+          docker tag backend:${{ github.run_number }} \
+            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
       - name: Trivy Scan
         uses: aquasecurity/trivy-action@v0.36.0
         env:
           TRIVY_JAVA_DB_SKIP_UPDATE: 'true'
         with:
-          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          image-ref: backend:${{ github.run_number }}
+          format: table
+          severity: CRITICAL,HIGH
           ignore-unfixed: true
-          scanners: 'vuln'
+          exit-code: 1
           cache: false
-
       - name: Push Docker Image
         run: |
           docker push \
-          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
       - name: Stop Existing Container
         run: |
-          docker stop $CONTAINER_NAME || true
-          docker rm $CONTAINER_NAME || true
+          docker stop backend || true
+          docker rm backend || true
       - name: Pull Latest Image
         run: |
           docker pull \
-          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
       - name: Run Container
         run: |
           docker run -d \
-            --name $CONTAINER_NAME \
+            --name backend \
             --restart always \
             -p 8084:8084 \
             -e MYSQL_HOST=database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com \
             -e MYSQL_PORT=3306 \
             -e MYSQL_USERNAME=admin \
             -e MYSQL_PASSWORD=admin123 \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
       - name: Health Check
         run: |
-          sleep 20
-          curl http://localhost:8084/actuator/health
-      - name: Show Running Containers
-        if: always()
-        run: docker ps -a
-      - name: Show Docker Images
-        if: always()
-        run: docker images
+          sleep 30
+          curl --fail http://localhost:8084/actuator/health
