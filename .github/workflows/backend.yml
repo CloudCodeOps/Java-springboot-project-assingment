@@ -70,6 +70,7 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           scanners: 'vuln'
+          cache: false
 
       - name: Push Docker Image
         run: |
@@ -89,7 +90,7 @@ jobs:
             --name $CONTAINER_NAME \
             --restart always \
             -p 8084:8084 \
-            -e MYSQL_HOST=database-1.cadsa2seukct.us-east-1.rds.amazonaws.com \
+            -e MYSQL_HOST=database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com \
             -e MYSQL_PORT=3306 \
             -e MYSQL_USERNAME=admin \
             -e MYSQL_PASSWORD=admin123 \
