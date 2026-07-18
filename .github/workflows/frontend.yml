@@ -14,7 +14,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
       - name: SonarQube Scan
         working-directory: frontend
         env:
@@ -27,14 +26,14 @@ jobs:
             -v "$(pwd):/usr/src" \
             sonarsource/sonar-scanner-cli \
             -Dsonar.projectKey=frontend
-
       - name: SonarQube Quality Gate Check
         uses: sonarsource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
+        with:
+          scanMetadataReportFile: frontend/.scannerwork/report-task.txt
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -50,16 +49,17 @@ jobs:
           docker build -t $ECR_REPOSITORY:${{ github.run_number }} .
           docker tag $ECR_REPOSITORY:${{ github.run_number }} \
             ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
       - name: Trivy Scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_JAVA_DB_SKIP_UPDATE: 'true'
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           ignore-unfixed: true
-
+          cache: false
       - name: Push Docker Image
         run: |
           docker push \
@@ -87,7 +87,6 @@ jobs:
       - name: Show Docker Images
         if: always()
         run: docker images
-
       - name: Send Email Notification
         if: always()
         uses: dawidd6/action-send-mail@v3
