@@ -18,21 +18,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v6
-        with:
-          projectBaseDir: frontend
-          args: >
-            -Dsonar.projectName=spring-boot-java-frontend
-            -Dsonar.projectKey=spring-boot-java-frontend
+     - name: SonarQube Scan
+        working-directory: frontend
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+@@ -27,14 +26,14 @@ jobs:
+            -v "$(pwd):/usr/src" \
+            sonarsource/sonar-scanner-cli \
+            -Dsonar.projectKey=frontend
 
-      - name: SonarQube Quality Gate
-        id: quality-gate
+      - name: SonarQube Quality Gate Check
         uses: sonarsource/sonarqube-quality-gate-action@master
-        continue-on-error: true
         timeout-minutes: 5
         with:
           scanMetadataReportFile: frontend/.scannerwork/report-task.txt
@@ -40,9 +35,9 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: Show Quality Gate Result (non-blocking)
-        run: echo "Quality Gate status was ${{ steps.quality-gate.outcome }}"
-
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
