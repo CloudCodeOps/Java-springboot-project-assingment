@@ -1,29 +1,40 @@
 name: Backend CI/CD
+
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: true
+
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: backend
   CONTAINER_NAME: backend
   CONTAINER_PORT: 8084
+
 jobs:
   build-and-deploy:
     runs-on: self-hosted
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: corretto
-          java-version: 17
+          java-version: '17'
           cache: maven
+
       - name: Build Project
         working-directory: backend
         run: mvn clean package -DskipTests
+
       - name: SonarQube Scan
         working-directory: backend
         env:
@@ -34,6 +45,7 @@ jobs:
             -Dsonar.projectKey=backend \
             -Dsonar.host.url=$SONAR_HOST_URL \
             -Dsonar.token=$SONAR_TOKEN
+
       - name: SonarQube Quality Gate
         uses: sonarsource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
@@ -42,44 +54,50 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+        
       - name: Build Docker Image
         working-directory: backend
         run: |
           docker build -t backend:${{ github.run_number }} .
           docker tag backend:${{ github.run_number }} \
             ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
+
       - name: Trivy Scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        env:
-          TRIVY_JAVA_DB_SKIP_UPDATE: 'true'
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: backend:${{ github.run_number }}
           format: table
-          severity: CRITICAL,HIGH
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: 1
-          cache: false
+          exit-code: '1'
+
       - name: Push Docker Image
         run: |
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
-      - name: Stop Existing Container
-        run: |
-          docker stop backend || true
-          docker rm backend || true
+
       - name: Pull Latest Image
         run: |
           docker pull \
             ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
+            
+      - name: Stop Existing Container
+        run: |
+          docker stop backend || true
+          docker rm backend || true      
+
       - name: Run Container
         run: |
           docker run -d \
@@ -91,7 +109,17 @@ jobs:
             -e MYSQL_USERNAME=admin \
             -e MYSQL_PASSWORD=admin123 \
             ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
+
       - name: Health Check
         run: |
           sleep 30
           curl --fail http://localhost:8084/actuator/health
+
+      # Cleanup after deployment
+      - name: Cleanup Docker After Deployment
+        if: always()
+        run: |
+          docker container prune -f || true
+          docker image prune -af || true
+          docker builder prune -af || true
+          docker system prune -af --volumes || true
