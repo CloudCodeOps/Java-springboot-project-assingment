@@ -1,20 +1,16 @@
 name: Frontend CI/CD
-
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-
 concurrency:
   group: frontend-deploy
   cancel-in-progress: true
-
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: frontend
   CONTAINER_NAME: frontend
-
 jobs:
   build-and-deploy:
     runs-on: self-hosted
@@ -22,16 +18,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-     - name: SonarQube Scan
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@v6
+        with:
+          projectBaseDir: frontend
+          args: >
+            -Dsonar.projectName=spring-boot-java-frontend
+            -Dsonar.projectKey=spring-boot-java-frontend
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          mvn sonar:sonar \
-            -Dsonar.projectKey=backend \
-            -Dsonar.host.url=$SONAR_HOST_URL \
-            -Dsonar.login=$SONAR_TOKEN
-            
+
       - name: SonarQube Quality Gate
         id: quality-gate
         uses: sonarsource/sonarqube-quality-gate-action@master
