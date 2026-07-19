@@ -32,7 +32,8 @@ jobs:
             sonarsource/sonar-scanner-cli:latest \
             -Dsonar.projectKey=frontend \
             -Dsonar.sources=. \
-            -Dsonar.projectBaseDir=/usr/src
+            -Dsonar.projectBaseDir=/usr/src \
+            -Dsonar.scanner.metadataFilePath=/usr/src/.scannerwork/report-task.txt
 
       - name: SonarQube Quality Gate Check
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
