@@ -3,7 +3,7 @@
 # Stage 1 — Build JAR
 FROM maven:3.9.9-amazoncorretto-11 AS builder
 WORKDIR /app
-COPY backend/ /app
+COPY . .
 RUN mvn clean package -Dspring.profiles.active=build -DskipTests
 
 # Stage 2 — Run JAR
