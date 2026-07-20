@@ -1,35 +1,66 @@
-name: Frontend CI/CD
+name: Backend CI/CD
 on:
 #  push:
-#    branches:
+ #   branches:
   #    - main
   workflow_dispatch:
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: frontend
-  CONTAINER_NAME: frontend
+  ECR_REPOSITORY: backend
+  CONTAINER_NAME: backend
+  CONTAINER_PORT: 8084
+
 jobs:
   build-and-deploy:
     runs-on: self-hosted
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      
+      - name: Build and SonarQube Scan
+        working-directory: backend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          mvn clean verify sonar:sonar \
+            -DskipTests \
+            -Dsonar.projectKey=backend \
+            -Dsonar.projectName=backend \
+            -Dsonar.host.url=$SONAR_HOST_URL \
+            -Dsonar.token=$SONAR_TOKEN
+      
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
+        with:
+          scanMetadataReportFile: backend/target/sonar/report-task.txt
+        timeout-minutes: 10
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build Docker Image
-        working-directory: frontend
+        working-directory: backend
         run: |
           docker build -t $ECR_REPOSITORY:${{ github.run_number }} .
           docker tag $ECR_REPOSITORY:${{ github.run_number }} \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
       - name: Push Docker Image
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
       - name: Stop Existing Container
         run: |
@@ -39,18 +70,24 @@ jobs:
       - name: Pull Latest Image
         run: |
           docker pull \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
-      - name: Run Frontend Container
+      - name: Run Container
         run: |
           docker run -d \
             --name $CONTAINER_NAME \
             --restart always \
-            -p 8501:8501 \
+            -p 8084:8084 \
+            -e MYSQL_HOST=database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com \
+            -e MYSQL_PORT=3306 \
+            -e MYSQL_USERNAME=admin \
+            -e MYSQL_PASSWORD=admin123 \
             ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
-      - name: Verify Container
-        run: docker ps
+      - name: Health Check
+        run: |
+          sleep 20
+          curl http://localhost:8084/actuator/health
 
       - name: Show Running Containers
         if: always()
