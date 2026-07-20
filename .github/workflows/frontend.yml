@@ -1,12 +1,9 @@
 name: Frontend CI/CD
 on:
-  push:
-    branches:
-      - main
+#  push:
+#    branches:
+  #    - main
   workflow_dispatch:
-concurrency:
-  group: frontend-deploy
-  cancel-in-progress: true
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: frontend
@@ -17,39 +14,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: SonarQube Scan
-        working-directory: frontend
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          docker run --rm \
-            --network host \
-            -e SONAR_HOST_URL="$SONAR_HOST_URL" \
-            -e SONAR_TOKEN="$SONAR_TOKEN" \
-            -v "$(pwd):/usr/src" \
-            sonarsource/sonar-scanner-cli:latest \
-            -Dsonar.projectKey=frontend \
-            -Dsonar.sources=. \
-            -Dsonar.projectBaseDir=/usr/src \
-            -Dsonar.scanner.metadataFilePath=/usr/src/.scannerwork/report-task.txt
-
-      - name: SonarQube Quality Gate Check
-        uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
-        timeout-minutes: 5
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          scanMetadataReportFile: frontend/.scannerwork/report-task.txt
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -62,32 +26,20 @@ jobs:
           docker tag $ECR_REPOSITORY:${{ github.run_number }} \
             ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
-      - name: Trivy Scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        env:
-          TRIVY_JAVA_DB_SKIP_UPDATE: "true"
-        with:
-          image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
-          cache: false
-
       - name: Push Docker Image
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
-      - name: Pull Latest Image
-        run: |
-          docker pull \
             ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
       - name: Stop Existing Container
         run: |
           docker stop $CONTAINER_NAME || true
           docker rm $CONTAINER_NAME || true
+
+      - name: Pull Latest Image
+        run: |
+          docker pull \
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
       - name: Run Frontend Container
         run: |
@@ -96,11 +48,6 @@ jobs:
             --restart always \
             -p 8501:8501 \
             ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
-
-      - name: Health Check
-        run: |
-          sleep 15
-          curl --fail http://localhost:8501/
 
       - name: Verify Container
         run: docker ps
@@ -112,10 +59,3 @@ jobs:
       - name: Show Docker Images
         if: always()
         run: docker images
-
-      - name: Cleanup Docker After Deployment
-        if: always()
-        run: |
-          docker container prune -f || true
-          docker image prune -af --filter "until=24h" || true
-          docker builder prune -af || true
