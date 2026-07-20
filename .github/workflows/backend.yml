@@ -48,6 +48,19 @@ jobs:
         with:
           scanMetadataReportFile: backend/target/sonar/report-task.txt
 
+      - name: Trivy File System Scan
+        working-directory: backend
+        run: |
+          echo "Starting Trivy File System Scan..."
+          trivy fs \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --output trivyfs.txt \
+            .
+
+          echo "========== Trivy File Scan Report =========="
+          cat trivyfs.txt
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
