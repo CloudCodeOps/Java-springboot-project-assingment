@@ -51,27 +51,14 @@ jobs:
       - name: Run Trivy File System Scan
         uses: aquasecurity/trivy-action@0.33.1
         with:
-            scan-type: fs
-            scan-ref: .
-             format: table
-             severity: HIGH,CRITICAL
-             output: trivyfs.txt
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          output: trivyfs.txt
 
       - name: Show Trivy Report
         run: cat trivyfs.txt
-
-      - name: Trivy File System Scan
-        working-directory: backend
-        run: |
-          echo "Starting Trivy File System Scan..."
-          trivy fs \
-            --severity HIGH,CRITICAL \
-            --format table \
-            --output trivyfs.txt \
-            .
-
-          echo "========== Trivy File Scan Report =========="
-          cat trivyfs.txt
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
