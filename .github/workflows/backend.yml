@@ -50,7 +50,7 @@ jobs:
 
       - name: Run Trivy File System Scan
         uses: aquasecurity/trivy-action@0.33.1
-         with:
+        with:
           scan-type: fs
           scan-ref: .
           format: table
