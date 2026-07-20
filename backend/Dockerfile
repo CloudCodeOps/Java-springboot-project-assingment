@@ -3,16 +3,17 @@
 # Stage 1 — Build JAR
 FROM maven:3.9.9-amazoncorretto-11 AS builder
 WORKDIR /app
-COPY . /app
+COPY backend/ /app
 RUN mvn clean package -Dspring.profiles.active=build -DskipTests
 
 # Stage 2 — Run JAR
 FROM amazoncorretto:11-alpine-jdk
 WORKDIR /app
-
 # Copy the built JAR from the builder stage
 COPY --from=builder /app/target/*.jar app.jar
 
+
+# ... (env vars, EXPOSE, CMD unchanged)
 # Set default environment variables (can be overridden at runtime)
 # ENV SPRING_DATASOURCE_URL="jdbc:mysql://database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com:3306/datastore?createDatabaseIfNotExist=true"
 # ENV SPRING_DATASOURCE_USERNAME="admin"
