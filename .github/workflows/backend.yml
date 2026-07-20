@@ -55,7 +55,7 @@ jobs:
             --severity HIGH,CRITICAL \
             --format table \
             --output trivyfs.txt \
-            .
+            --exit-code 0 \
 
       - name: Show Trivy Report
         run: |
