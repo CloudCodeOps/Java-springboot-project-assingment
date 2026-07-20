@@ -1,130 +1,61 @@
-name: Backend CI/CD
-
+name: Frontend CI/CD
 on:
-  push:
-    branches:
-      - main
+#  push:
+#    branches:
+  #    - main
   workflow_dispatch:
-
-concurrency:
-  group: backend-deploy
-  cancel-in-progress: true
-
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: backend
-  CONTAINER_NAME: backend
-  CONTAINER_PORT: 8084
-
+  ECR_REPOSITORY: frontend
+  CONTAINER_NAME: frontend
 jobs:
   build-and-deploy:
     runs-on: self-hosted
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: corretto
-          java-version: '17'
-          cache: maven
-
-      - name: Build Project
-        working-directory: backend
-        run: mvn clean package -DskipTests
-
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v4
-        with:
-          projectBaseDir: backend
-          args: >
-            -Dsonar.projectName=spring-boot-java-backend
-            -Dsonar.projectKey=spring-boot-java-backend
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
-      - name: SonarQube Quality Gate
-        id: quality-gate
-        uses: sonarsource/sonarqube-quality-gate-action@master
-        continue-on-error: true
-        timeout-minutes: 5
-        with:
-          scanMetadataReportFile: backend/.scannerwork/report-task.txt
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
-      - name: Show Quality Gate Result (non-blocking)
-        run: echo "Quality Gate status was ${{ steps.quality-gate.outcome }}"
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-        
-      - name: Build Docker Image
-        working-directory: backend
-        run: |
-          docker build -t backend:${{ github.run_number }} .
-          docker tag backend:${{ github.run_number }} \
-            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
 
-      - name: Trivy Scan
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: backend:${{ github.run_number }}
-          format: table
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
+      - name: Build Docker Image
+        working-directory: frontend
+        run: |
+          docker build -t $ECR_REPOSITORY:${{ github.run_number }} .
+          docker tag $ECR_REPOSITORY:${{ github.run_number }} \
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
       - name: Push Docker Image
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
+
+      - name: Stop Existing Container
+        run: |
+          docker stop $CONTAINER_NAME || true
+          docker rm $CONTAINER_NAME || true
 
       - name: Pull Latest Image
         run: |
           docker pull \
-            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
-            
-      - name: Stop Existing Container
-        run: |
-          docker stop backend || true
-          docker rm backend || true      
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
-      - name: Run Container
+      - name: Run Frontend Container
         run: |
           docker run -d \
-            --name backend \
+            --name $CONTAINER_NAME \
             --restart always \
-            -p 8084:8084 \
-            -e MYSQL_HOST=database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com \
-            -e MYSQL_PORT=3306 \
-            -e MYSQL_USERNAME=admin \
-            -e MYSQL_PASSWORD=admin123 \
-            ${{ steps.login-ecr.outputs.registry }}/backend:${{ github.run_number }}
+            -p 8501:8501 \
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.run_number }}
 
-      - name: Health Check
-        run: |
-          sleep 30
-          curl --fail http://localhost:8084/actuator/health
+      - name: Verify Container
+        run: docker ps
 
-      # Cleanup after deployment
-      - name: Cleanup Docker After Deployment
+      - name: Show Running Containers
         if: always()
-        run: |
-          docker container prune -f || true
-          docker image prune -af || true
-          docker builder prune -af || true
-          docker system prune -af --volumes || true
+        run: docker ps -a
+
+      - name: Show Docker Images
+        if: always()
+        run: docker images
